@@ -745,11 +745,13 @@
   <!-- Footer -->
   <footer class="app-footer">
     <div class="footer-info">
-      <span class="storage-hint">&#128190; 数据保存在浏览器本地存储 (localStorage)</span>
+      <span class="storage-hint">&#128190; 数据保存在 D:\重要数据\todos.json</span>
       <span class="storage-count" id="storageSize"></span>
     </div>
     <div class="footer-actions">
       <button class="btn btn-outline btn-sm" id="exportBtn">&#128229; 导出数据</button>
+      <button class="btn btn-outline btn-sm" id="importBtn">&#128228; 导入数据</button>
+      <input type="file" id="importFileInput" accept=".json,application/json" style="display:none">
     </div>
   </footer>
 </div>
@@ -801,26 +803,32 @@
 
 <script>
 // ============================================================
-//  Store - 数据管理层
+//  Store - 数据管理层 (HTTP API → 本地文件持久化)
 // ============================================================
-const STORAGE_KEY = 'my-thought-box-todos';
-
 const Store = {
   _data: null,
   _listeners: [],
 
-  _load() {
-    if (this._data) return;
+  async init() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      this._data = raw ? JSON.parse(raw) : [];
-    } catch {
+      const res = await fetch('/api/data');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      this._data = await res.json();
+      if (!Array.isArray(this._data)) this._data = [];
+    } catch (e) {
       this._data = [];
+      console.error('数据加载失败:', e);
     }
+    this._notify();
   },
 
   _save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
+    if (!this._data) return;
+    fetch('/api/data', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this._data)
+    }).catch(e => console.error('数据保存失败:', e));
     this._notify();
   },
 
@@ -829,17 +837,14 @@ const Store = {
   },
 
   getAll() {
-    this._load();
-    return [...this._data];
+    return [...(this._data || [])];
   },
 
   getById(id) {
-    this._load();
-    return this._data.find(t => t.id === id);
+    return this._data ? this._data.find(t => t.id === id) : undefined;
   },
 
   add({ title, category, notes }) {
-    this._load();
     const todo = {
       id: Date.now(),
       title: title.trim(),
@@ -855,7 +860,6 @@ const Store = {
   },
 
   update(id, updates) {
-    this._load();
     const idx = this._data.findIndex(t => t.id === id);
     if (idx === -1) return false;
     this._data[idx] = { ...this._data[idx], ...updates, id, updatedAt: new Date().toISOString() };
@@ -868,19 +872,18 @@ const Store = {
   },
 
   delete(id) {
-    this._load();
     this._data = this._data.filter(t => t.id !== id);
     this._save();
   },
 
   getCategories() {
-    this._load();
+    if (!this._data) return ['工作', '学习', '生活', '灵感', '其他'];
     const cats = new Set(this._data.map(t => t.category));
     return ['工作', '学习', '生活', '灵感', '其他', ...Array.from(cats).filter(c => !['工作', '学习', '生活', '灵感', '其他'].includes(c))];
   },
 
   getStats() {
-    this._load();
+    if (!this._data) return { total: 0, pending: 0, completed: 0, postponed: 0, byCategory: {} };
     const total = this._data.length;
     const pending = this._data.filter(t => t.status === 'pending').length;
     const completed = this._data.filter(t => t.status === 'completed').length;
@@ -893,7 +896,7 @@ const Store = {
   },
 
   getTimeStats() {
-    this._load();
+    if (!this._data) return { today: 0, week: 0, month: 0 };
     const today = getTodayStart();
     const week = getWeekStart();
     const month = getMonthStart();
@@ -908,7 +911,7 @@ const Store = {
   },
 
   search(query) {
-    if (!query.trim()) return this.getAll();
+    if (!query.trim() || !this._data) return this.getAll();
     const q = query.trim().toLowerCase();
     return this._data.filter(t =>
       t.title.toLowerCase().includes(q) ||
@@ -1170,18 +1173,66 @@ function exportData() {
   showToast('数据已导出');
 }
 
-function updateStorageSize() {
+async function updateStorageSize() {
   const el = $('storageSize');
   if (!el) return;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) { el.textContent = ''; return; }
-    const bytes = new Blob([raw]).size;
-    if (bytes < 1024) el.textContent = `(${bytes} B)`;
-    else if (bytes < 1048576) el.textContent = `(${(bytes / 1024).toFixed(1)} KB)`;
-    else el.textContent = `(${(bytes / 1048576).toFixed(1)} MB)`;
+    const res = await fetch('/api/info');
+    const info = await res.json();
+    if (!info.exists || info.size === 0) { el.textContent = ''; return; }
+    if (info.size < 1024) el.textContent = `(${info.size} B)`;
+    else if (info.size < 1048576) el.textContent = `(${(info.size / 1024).toFixed(1)} KB)`;
+    else el.textContent = `(${(info.size / 1048576).toFixed(1)} MB)`;
   } catch { el.textContent = ''; }
 }
+
+// ============================================================
+//  Import
+// ============================================================
+function importData() {
+  $('importFileInput').click();
+}
+
+$('importFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      let todos;
+
+      if (Array.isArray(parsed)) {
+        todos = parsed;
+      } else if (parsed.todos && Array.isArray(parsed.todos)) {
+        todos = parsed.todos;
+      } else {
+        showToast('无法识别的文件格式');
+        return;
+      }
+
+      if (todos.length === 0) { showToast('文件中没有数据'); return; }
+
+      // 校验每条数据合法性
+      const valid = todos.every(t => t && t.title);
+      if (!valid) { showToast('数据格式不完整，缺少标题字段'); return; }
+
+      openConfirm(`将用文件中的 ${todos.length} 条数据替换当前全部数据，确定要导入吗？`, () => {
+        Store._data = todos;
+        Store._save();
+        Renderer.refresh();
+        showToast(`已导入 ${todos.length} 条数据`);
+        closeConfirm();
+      }, '导入', 'btn-primary');
+    } catch {
+      showToast('文件解析失败，请确认是有效的 JSON 文件');
+    }
+  };
+  reader.readAsText(file);
+  // 重置 input 以便重复选择同一文件
+  e.target.value = '';
+});
 
 // ============================================================
 //  Modal - Edit
@@ -1224,8 +1275,10 @@ function saveEdit() {
 // ============================================================
 //  Confirm Dialog
 // ============================================================
-function openConfirm(message, onConfirm) {
+function openConfirm(message, onConfirm, confirmLabel, btnClass) {
   $('confirmMessage').textContent = message;
+  $('confirmDelete').textContent = confirmLabel || '删除';
+  $('confirmDelete').className = 'btn ' + (btnClass || 'btn-danger');
   $('confirmDialog').classList.add('show');
   $('confirmDialog')._onConfirm = onConfirm;
 }
@@ -1236,9 +1289,12 @@ function closeConfirm() {
 }
 
 // ============================================================
-//  Event Binding
+//  Event Binding & App Init
 // ============================================================
-function init() {
+async function initApp() {
+  // 从服务器加载数据
+  await Store.init();
+
   // Quick Add - expand toggle
   $('expandToggle').addEventListener('click', () => {
     const el = $('quickAddExtras');
@@ -1283,8 +1339,9 @@ function init() {
     showToast('已添加');
   }
 
-  // Export
+  // Export / Import
   $('exportBtn').addEventListener('click', exportData);
+  $('importBtn').addEventListener('click', importData);
 
   // Search
   $('searchInput').addEventListener('input', (e) => {
@@ -1406,7 +1463,7 @@ function init() {
 // ============================================================
 //  Boot
 // ============================================================
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', initApp);
 </script>
 </body>
 </html>

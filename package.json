@@ -1,0 +1,9 @@
+{
+  "name": "my-thought-box",
+  "version": "2.0.0",
+  "description": "我的想法箱 - 本地文件持久化待办管理工具",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
