@@ -91,12 +91,20 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({
         size: stats.size,
         path: DATA_FILE,
-        exists: true
+        exists: true,
+        updatedAt: stats.mtime
       }));
     } catch {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ size: 0, path: DATA_FILE, exists: false }));
     }
+    return;
+  }
+
+  // ---- API: 健康检查 ----
+  if (pathname === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ status: 'ok', time: Date.now() }));
     return;
   }
 

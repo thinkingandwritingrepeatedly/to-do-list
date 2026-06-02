@@ -35,24 +35,24 @@
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
-    padding: 24px 16px;
+    padding: 20px 16px;
     min-height: 100vh;
   }
 
   #app {
-    max-width: 720px;
+    max-width: 1100px;
     margin: 0 auto;
   }
 
   /* Header */
   header {
-    margin-bottom: 28px;
+    margin-bottom: 8px;
   }
   header h1 {
     font-size: 26px;
     font-weight: 700;
     letter-spacing: -0.5px;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }
   header h1 span { color: var(--primary); }
   .header-stats {
@@ -76,13 +76,28 @@
   .dot-completed { background: var(--success); }
   .dot-postponed { background: var(--warning); }
 
+  /* Header Actions (Export/Import) */
+  .header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0;
+    margin-bottom: 0;
+  }
+  .header-actions .ha-left {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
   /* Quick Add */
   .quick-add {
     background: var(--card);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    padding: 16px 20px;
-    margin-bottom: 20px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
     transition: box-shadow .2s;
   }
   .quick-add:focus-within { box-shadow: var(--shadow-md); }
@@ -224,8 +239,8 @@
   .categories {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 8px;
   }
   .category-tag {
     display: inline-flex;
@@ -251,9 +266,9 @@
   .toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
   }
   .search-box {
     flex: 1;
@@ -649,38 +664,37 @@
   .confirm-box .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   /* Scrollbar */
-  /* Footer */
-  .app-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 16px 0 8px;
-    border-top: 1px solid var(--border);
-    margin-top: 4px;
-  }
-  .footer-info {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 16px;
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-  .footer-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  @media (max-width: 500px) {
-    .app-footer { flex-direction: column; align-items: stretch; }
-    .footer-actions { justify-content: flex-end; }
-  }
 
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* Connection Banner */
+  .connection-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: var(--danger-light);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-sm);
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--danger);
+    font-weight: 500;
+  }
+  .connection-banner.show { display: flex; }
+  .connection-banner .icon { font-size: 18px; }
+  .btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+    transform: none !important;
+  }
+  input:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+  }
 </style>
 </head>
 <body>
@@ -690,6 +704,22 @@
     <h1>我的想法箱</h1>
     <div class="header-stats" id="headerStats"></div>
   </header>
+
+  <!-- Header Actions (Export/Import) -->
+  <div class="header-actions">
+    <span class="ha-left">&#128190; 数据保存在 D:\重要数据\todos.json <span id="storageSize"></span></span>
+    <span>
+      <button class="btn btn-outline btn-sm" id="exportBtn">&#128229; 导出数据</button>
+      <button class="btn btn-outline btn-sm" id="importBtn">&#128228; 导入数据</button>
+      <input type="file" id="importFileInput" accept=".json,application/json" style="display:none">
+    </span>
+  </div>
+
+  <!-- Connection Banner -->
+  <div class="connection-banner" id="connectionBanner">
+    <span class="icon">&#9888;</span>
+    <span>服务连接已断开，操作无法保存</span>
+  </div>
 
   <!-- Quick Add -->
   <section class="quick-add">
@@ -742,18 +772,6 @@
   <!-- Todo List -->
   <section class="todo-list" id="todoList"></section>
 
-  <!-- Footer -->
-  <footer class="app-footer">
-    <div class="footer-info">
-      <span class="storage-hint">&#128190; 数据保存在 D:\重要数据\todos.json</span>
-      <span class="storage-count" id="storageSize"></span>
-    </div>
-    <div class="footer-actions">
-      <button class="btn btn-outline btn-sm" id="exportBtn">&#128229; 导出数据</button>
-      <button class="btn btn-outline btn-sm" id="importBtn">&#128228; 导入数据</button>
-      <input type="file" id="importFileInput" accept=".json,application/json" style="display:none">
-    </div>
-  </footer>
 </div>
 
 <!-- Edit Modal -->
@@ -808,6 +826,8 @@
 const Store = {
   _data: null,
   _listeners: [],
+  _connected: true,
+  _heartbeatTimer: null,
 
   async init() {
     try {
@@ -815,21 +835,65 @@ const Store = {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       this._data = await res.json();
       if (!Array.isArray(this._data)) this._data = [];
+      this._connected = true;
     } catch (e) {
       this._data = [];
+      this._connected = false;
       console.error('数据加载失败:', e);
     }
     this._notify();
   },
 
-  _save() {
+  async _save() {
     if (!this._data) return;
-    fetch('/api/data', {
+    const res = await fetch('/api/data', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(this._data)
-    }).catch(e => console.error('数据保存失败:', e));
+    });
+    if (!res.ok) throw new Error('保存失败: HTTP ' + res.status);
     this._notify();
+  },
+
+  _checkConnected() {
+    if (!this._connected) {
+      showToast('服务未连接，无法保存数据');
+      return false;
+    }
+    return true;
+  },
+
+  async _checkHealth() {
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      if (res.ok) {
+        if (!this._connected) {
+          this._connected = true;
+          updateConnectionUI();
+          showToast('服务已恢复连接');
+        }
+      } else {
+        throw new Error('unhealthy');
+      }
+    } catch {
+      if (this._connected) {
+        this._connected = false;
+        updateConnectionUI();
+        showToast('服务连接已断开');
+      }
+    }
+  },
+
+  _startHeartbeat() {
+    this._checkHealth();
+    this._heartbeatTimer = setInterval(() => this._checkHealth(), 5000);
+  },
+
+  _stopHeartbeat() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
   },
 
   _notify() {
@@ -844,7 +908,8 @@ const Store = {
     return this._data ? this._data.find(t => t.id === id) : undefined;
   },
 
-  add({ title, category, notes }) {
+  async add({ title, category, notes }) {
+    if (!this._checkConnected()) throw new Error('not connected');
     const todo = {
       id: Date.now(),
       title: title.trim(),
@@ -855,25 +920,54 @@ const Store = {
       updatedAt: new Date().toISOString()
     };
     this._data.unshift(todo);
-    this._save();
-    return todo;
+    try {
+      await this._save();
+      return todo;
+    } catch (e) {
+      this._data.shift();
+      this._connected = false;
+      updateConnectionUI();
+      showToast('保存失败，服务无响应');
+      throw e;
+    }
   },
 
-  update(id, updates) {
+  async update(id, updates) {
+    if (!this._checkConnected()) throw new Error('not connected');
     const idx = this._data.findIndex(t => t.id === id);
     if (idx === -1) return false;
-    this._data[idx] = { ...this._data[idx], ...updates, id, updatedAt: new Date().toISOString() };
-    this._save();
-    return true;
+    const original = { ...this._data[idx] };
+    this._data[idx] = { ...original, ...updates, id, updatedAt: new Date().toISOString() };
+    try {
+      await this._save();
+      return true;
+    } catch (e) {
+      this._data[idx] = original;
+      this._connected = false;
+      updateConnectionUI();
+      showToast('保存失败，服务无响应');
+      throw e;
+    }
   },
 
-  updateStatus(id, status) {
+  async updateStatus(id, status) {
     return this.update(id, { status });
   },
 
-  delete(id) {
-    this._data = this._data.filter(t => t.id !== id);
-    this._save();
+  async delete(id) {
+    if (!this._checkConnected()) throw new Error('not connected');
+    const idx = this._data.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const [removed] = this._data.splice(idx, 1);
+    try {
+      await this._save();
+    } catch (e) {
+      this._data.splice(idx, 0, removed);
+      this._connected = false;
+      updateConnectionUI();
+      showToast('保存失败，服务无响应');
+      throw e;
+    }
   },
 
   getCategories() {
@@ -1152,6 +1246,26 @@ function showToast(msg) {
 }
 
 // ============================================================
+//  Connection UI
+// ============================================================
+function updateConnectionUI() {
+  const banner = $('connectionBanner');
+  const addBtn = $('addBtn');
+  const input = $('newTodoInput');
+  if (Store._connected) {
+    banner.classList.remove('show');
+    addBtn.disabled = false;
+    input.disabled = false;
+    input.placeholder = '有什么想法？输入后按 Enter 快速添加...';
+  } else {
+    banner.classList.add('show');
+    addBtn.disabled = true;
+    input.disabled = true;
+    input.placeholder = '服务未连接，暂无法添加...';
+  }
+}
+
+// ============================================================
 //  Export & Storage Info
 // ============================================================
 function exportData() {
@@ -1180,9 +1294,12 @@ async function updateStorageSize() {
     const res = await fetch('/api/info');
     const info = await res.json();
     if (!info.exists || info.size === 0) { el.textContent = ''; return; }
-    if (info.size < 1024) el.textContent = `(${info.size} B)`;
-    else if (info.size < 1048576) el.textContent = `(${(info.size / 1024).toFixed(1)} KB)`;
-    else el.textContent = `(${(info.size / 1048576).toFixed(1)} MB)`;
+    let sizeStr;
+    if (info.size < 1024) sizeStr = `${info.size} B`;
+    else if (info.size < 1048576) sizeStr = `${(info.size / 1024).toFixed(1)} KB`;
+    else sizeStr = `${(info.size / 1048576).toFixed(1)} MB`;
+    const timeStr = formatDate(info.updatedAt);
+    el.textContent = `(${sizeStr}) · ${timeStr}`;
   } catch { el.textContent = ''; }
 }
 
@@ -1218,12 +1335,22 @@ $('importFileInput').addEventListener('change', (e) => {
       const valid = todos.every(t => t && t.title);
       if (!valid) { showToast('数据格式不完整，缺少标题字段'); return; }
 
-      openConfirm(`将用文件中的 ${todos.length} 条数据替换当前全部数据，确定要导入吗？`, () => {
+      openConfirm(`将用文件中的 ${todos.length} 条数据替换当前全部数据，确定要导入吗？`, async () => {
+        const originalData = Store._data;
         Store._data = todos;
-        Store._save();
-        Renderer.refresh();
-        showToast(`已导入 ${todos.length} 条数据`);
-        closeConfirm();
+        try {
+          await Store._save();
+          Renderer.refresh();
+          showToast(`已导入 ${todos.length} 条数据`);
+          closeConfirm();
+        } catch (e) {
+          Store._data = originalData;
+          Store._connected = false;
+          updateConnectionUI();
+          Renderer.refresh();
+          showToast('导入失败，服务无响应');
+          closeConfirm();
+        }
       }, '导入', 'btn-primary');
     } catch {
       showToast('文件解析失败，请确认是有效的 JSON 文件');
@@ -1260,16 +1387,20 @@ function closeEditModal() {
   editingId = null;
 }
 
-function saveEdit() {
+async function saveEdit() {
   const title = $('editTitle').value.trim();
   if (!title) { showToast('标题不能为空'); return; }
   const category = $('editCategory').value;
   const status = document.querySelector('input[name="editStatus"]:checked').value;
   const notes = $('editNotes').value;
-  Store.update(editingId, { title, category, status, notes });
-  closeEditModal();
-  Renderer.refresh();
-  showToast('已更新');
+  try {
+    await Store.update(editingId, { title, category, status, notes });
+    closeEditModal();
+    Renderer.refresh();
+    showToast('已更新');
+  } catch (e) {
+    // Error handled in Store.update
+  }
 }
 
 // ============================================================
@@ -1294,6 +1425,8 @@ function closeConfirm() {
 async function initApp() {
   // 从服务器加载数据
   await Store.init();
+  updateConnectionUI();
+  Store._startHeartbeat();
 
   // Quick Add - expand toggle
   $('expandToggle').addEventListener('click', () => {
@@ -1310,7 +1443,7 @@ async function initApp() {
   // Quick Add - button
   $('addBtn').addEventListener('click', addTodo);
 
-  function addTodo() {
+  async function addTodo() {
     const input = $('newTodoInput');
     const title = input.value.trim();
     if (!title) { showToast('请输入想法内容'); input.focus(); return; }
@@ -1321,22 +1454,25 @@ async function initApp() {
 
     const notes = $('newNotes').value;
 
-    Store.add({ title, category, notes });
-    input.value = '';
-    $('newCustomCategory').value = '';
-    $('newNotes').value = '';
-    input.focus();
+    try {
+      await Store.add({ title, category, notes });
+      input.value = '';
+      $('newCustomCategory').value = '';
+      $('newNotes').value = '';
+      input.focus();
 
-    // Add new category to select if custom
-    if (customCat && ![...$('newCategory').options].some(o => o.value === customCat)) {
-      const opt = document.createElement('option');
-      opt.value = customCat; opt.textContent = customCat;
-      $('newCategory').appendChild(opt);
-      $('newCategory').value = customCat;
+      if (customCat && ![...$('newCategory').options].some(o => o.value === customCat)) {
+        const opt = document.createElement('option');
+        opt.value = customCat; opt.textContent = customCat;
+        $('newCategory').appendChild(opt);
+        $('newCategory').value = customCat;
+      }
+
+      Renderer.refresh();
+      showToast('已添加');
+    } catch (e) {
+      Renderer.refresh();
     }
-
-    Renderer.refresh();
-    showToast('已添加');
   }
 
   // Export / Import
@@ -1381,49 +1517,60 @@ async function initApp() {
   });
 
   // Todo list actions (event delegation)
-  $('todoList').addEventListener('click', (e) => {
+  $('todoList').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
     const id = Number(btn.dataset.id);
     if (!id) return;
 
-    if (action === 'complete') {
-      Store.updateStatus(id, 'completed');
-      Renderer.refresh();
-      showToast('已完成');
-    } else if (action === 'postpone') {
-      Store.updateStatus(id, 'postponed');
-      Renderer.refresh();
-      showToast('已标记为暂缓');
-    } else if (action === 'pending') {
-      Store.updateStatus(id, 'pending');
-      Renderer.refresh();
-      showToast('已恢复待办');
-    } else if (action === 'toggle-status') {
-      const todo = Store.getById(id);
-      if (!todo) return;
-      if (todo.status === 'pending') {
-        Store.updateStatus(id, 'completed');
-        showToast('已完成');
-      } else {
-        Store.updateStatus(id, 'pending');
-        showToast('已恢复待办');
-      }
-      Renderer.refresh();
-    } else if (action === 'edit') {
+    if (action === 'edit') {
       openEditModal(id);
-    } else if (action === 'delete') {
+      return;
+    }
+    if (action === 'delete') {
       const todo = Store.getById(id);
       if (!todo) return;
       deletingId = id;
-      openConfirm(`确定要删除「${todo.title}」吗？删除后不可恢复。`, () => {
-        Store.delete(deletingId);
-        Renderer.refresh();
-        showToast('已删除');
+      openConfirm(`确定要删除「${todo.title}」吗？删除后不可恢复。`, async () => {
+        try {
+          await Store.delete(deletingId);
+          Renderer.refresh();
+          showToast('已删除');
+        } catch (e) {
+          Renderer.refresh();
+        }
         deletingId = null;
         closeConfirm();
       });
+      return;
+    }
+
+    try {
+      if (action === 'complete') {
+        await Store.updateStatus(id, 'completed');
+        showToast('已完成');
+      } else if (action === 'postpone') {
+        await Store.updateStatus(id, 'postponed');
+        showToast('已标记为暂缓');
+      } else if (action === 'pending') {
+        await Store.updateStatus(id, 'pending');
+        showToast('已恢复待办');
+      } else if (action === 'toggle-status') {
+        const todo = Store.getById(id);
+        if (todo) {
+          if (todo.status === 'pending') {
+            await Store.updateStatus(id, 'completed');
+            showToast('已完成');
+          } else {
+            await Store.updateStatus(id, 'pending');
+            showToast('已恢复待办');
+          }
+        }
+      }
+      Renderer.refresh();
+    } catch (e) {
+      Renderer.refresh();
     }
   });
 
@@ -1446,6 +1593,9 @@ async function initApp() {
   $('confirmDialog').addEventListener('click', (e) => {
     if (e.target === $('confirmDialog')) closeConfirm();
   });
+
+  // Stop heartbeat on page unload
+  window.addEventListener('beforeunload', () => Store._stopHeartbeat());
 
   // Keyboard shortcut: Escape closes modals
   document.addEventListener('keydown', (e) => {
